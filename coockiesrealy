@@ -1,0 +1,437 @@
+-- LocalScript ÚNICO (StarterPlayerScripts ou executor)
+-- Minigame do biscoito estilo Round 6 (dalgona) — 2 texturas de rachadura sobrepostas
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+
+-- CONFIGURAÇÕES
+local TARGET_POS = Vector3.new(1756.70, 3552.08, -5479.27)
+local RAIO_DETECCAO = 6
+local COOLDOWN = 3
+
+local RAIO_CIRCULO = 150
+local LINHA_ESPESSURA = 14
+local TOLERANCIA = LINHA_ESPESSURA / 2
+local MAX_ERROS = 4
+local TEMPO_LIMITE = 180
+local PORCENTAGEM_PRA_VENCER = 0.92
+local TOTAL_SEGMENTOS = 140
+local MAX_SALTO_BUCKETS = 8
+
+local IMAGEM_BISCOITO = ""
+local TEXTURA_QUEBRADO_1 = "14663335253"
+local TEXTURA_QUEBRADO_2 = "10700226520"
+
+local FORMAS = {
+	{nome = "Círculo", lados = nil},
+	{nome = "Triângulo", lados = 3},
+	{nome = "Quadrado", lados = 4},
+	{nome = "Pentágono", lados = 5},
+	{nome = "Hexágono", lados = 6},
+	{nome = "Heptágono", lados = 7},
+	{nome = "Octógono", lados = 8},
+	{nome = "Eneágono", lados = 9},
+	{nome = "Decágono", lados = 10},
+	{nome = "Dodecágono", lados = 12},
+}
+
+local BASE_ANGULO = -90
+
+local emJogo = false
+local ultimoUso = 0
+
+local function raioNoAngulo(anguloGraus, forma)
+	if not forma.lados then
+		return RAIO_CIRCULO
+	end
+	local n = forma.lados
+	local anguloPorLado = 360 / n
+	local apotema = RAIO_CIRCULO * math.cos(math.rad(180 / n))
+	local relativo = (anguloGraus - BASE_ANGULO) % 360
+	local anguloDentroSetor = relativo % anguloPorLado
+	local anguloRel = anguloDentroSetor - anguloPorLado / 2
+	return apotema / math.cos(math.rad(anguloRel))
+end
+
+local function pontoNoAngulo(anguloGraus, forma, centro)
+	local raio = raioNoAngulo(anguloGraus, forma)
+	return Vector2.new(
+		centro.X + raio * math.cos(math.rad(anguloGraus)),
+		centro.Y + raio * math.sin(math.rad(anguloGraus))
+	)
+end
+
+local function criarGui()
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "BiscoitoRound6Gui"
+	screenGui.ResetOnSpawn = false
+	screenGui.DisplayOrder = 50
+	screenGui.IgnoreGuiInset = true
+
+	local overlay = Instance.new("Frame")
+	overlay.Name = "Overlay"
+	overlay.Size = UDim2.new(1, 0, 1, 0)
+	overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	overlay.BackgroundTransparency = 0.35
+	overlay.BorderSizePixel = 0
+	overlay.Parent = screenGui
+
+	local biscoito = Instance.new("ImageLabel")
+	biscoito.Name = "Biscoito"
+	biscoito.AnchorPoint = Vector2.new(0.5, 0.5)
+	biscoito.Position = UDim2.new(0.5, 0, 0.5, 0)
+	biscoito.Size = UDim2.new(0, (RAIO_CIRCULO + 40) * 2, 0, (RAIO_CIRCULO + 40) * 2)
+	biscoito.BackgroundColor3 = Color3.fromRGB(196, 148, 80)
+	biscoito.BorderSizePixel = 0
+	biscoito.ScaleType = Enum.ScaleType.Crop
+	biscoito.ZIndex = 1
+
+	if IMAGEM_BISCOITO ~= "" then
+		biscoito.Image = "rbxassetid://" .. IMAGEM_BISCOITO
+		biscoito.ImageTransparency = 0
+	else
+		biscoito.ImageTransparency = 1
+	end
+	biscoito.Parent = overlay
+
+	local corner1 = Instance.new("UICorner")
+	corner1.CornerRadius = UDim.new(1, 0)
+	corner1.Parent = biscoito
+
+	local sombra = Instance.new("UIStroke")
+	sombra.Thickness = 3
+	sombra.Color = Color3.fromRGB(120, 85, 40)
+	sombra.Parent = biscoito
+
+	-- 1ª camada de rachadura, sobreposta exatamente ao biscoito
+	local rachaduras1 = Instance.new("ImageLabel")
+	rachaduras1.Name = "Rachaduras1"
+	rachaduras1.AnchorPoint = biscoito.AnchorPoint
+	rachaduras1.Position = biscoito.Position
+	rachaduras1.Size = biscoito.Size
+	rachaduras1.BackgroundTransparency = 1
+	rachaduras1.ScaleType = Enum.ScaleType.Crop
+	rachaduras1.Image = "rbxassetid://" .. TEXTURA_QUEBRADO_1
+	rachaduras1.ImageTransparency = 1
+	rachaduras1.ZIndex = 2
+	rachaduras1.Parent = overlay
+
+	local cornerR1 = Instance.new("UICorner")
+	cornerR1.CornerRadius = UDim.new(1, 0)
+	cornerR1.Parent = rachaduras1
+
+	-- 2ª camada de rachadura, sobreposta exatamente ao biscoito
+	local rachaduras2 = Instance.new("ImageLabel")
+	rachaduras2.Name = "Rachaduras2"
+	rachaduras2.AnchorPoint = biscoito.AnchorPoint
+	rachaduras2.Position = biscoito.Position
+	rachaduras2.Size = biscoito.Size
+	rachaduras2.BackgroundTransparency = 1
+	rachaduras2.ScaleType = Enum.ScaleType.Crop
+	rachaduras2.Image = "rbxassetid://" .. TEXTURA_QUEBRADO_2
+	rachaduras2.ImageTransparency = 1
+	rachaduras2.ZIndex = 3
+	rachaduras2.Parent = overlay
+
+	local cornerR2 = Instance.new("UICorner")
+	cornerR2.CornerRadius = UDim.new(1, 0)
+	cornerR2.Parent = rachaduras2
+
+	local faca = Instance.new("Frame")
+	faca.Name = "Faca"
+	faca.AnchorPoint = Vector2.new(0.5, 0.5)
+	faca.Size = UDim2.new(0, 14, 0, 14)
+	faca.BackgroundColor3 = Color3.fromRGB(90, 220, 90)
+	faca.BorderSizePixel = 0
+	faca.ZIndex = 8
+	faca.Parent = overlay
+
+	local facaCorner = Instance.new("UICorner")
+	facaCorner.CornerRadius = UDim.new(1, 0)
+	facaCorner.Parent = faca
+
+	local status = Instance.new("TextLabel")
+	status.Name = "Status"
+	status.AnchorPoint = Vector2.new(0.5, 0)
+	status.Position = UDim2.new(0.5, 0, 0.05, 0)
+	status.Size = UDim2.new(0, 500, 0, 40)
+	status.BackgroundTransparency = 1
+	status.Font = Enum.Font.GothamBold
+	status.TextSize = 22
+	status.TextColor3 = Color3.fromRGB(255, 255, 255)
+	status.Parent = overlay
+
+	local progresso = Instance.new("TextLabel")
+	progresso.Name = "Progresso"
+	progresso.AnchorPoint = Vector2.new(0.5, 0)
+	progresso.Position = UDim2.new(0.5, 0, 0.1, 0)
+	progresso.Size = UDim2.new(0, 500, 0, 30)
+	progresso.BackgroundTransparency = 1
+	progresso.Font = Enum.Font.Gotham
+	progresso.TextSize = 18
+	progresso.TextColor3 = Color3.fromRGB(255, 255, 255)
+	progresso.Text = "Progresso: 0%"
+	progresso.Parent = overlay
+
+	local tempoLabel = Instance.new("TextLabel")
+	tempoLabel.Name = "Tempo"
+	tempoLabel.AnchorPoint = Vector2.new(0.5, 0)
+	tempoLabel.Position = UDim2.new(0.5, 0, 0.15, 0)
+	tempoLabel.Size = UDim2.new(0, 500, 0, 30)
+	tempoLabel.BackgroundTransparency = 1
+	tempoLabel.Font = Enum.Font.Gotham
+	tempoLabel.TextSize = 18
+	tempoLabel.TextColor3 = Color3.fromRGB(255, 220, 220)
+	tempoLabel.Parent = overlay
+
+	return screenGui, biscoito, faca, status, progresso, tempoLabel, rachaduras1, rachaduras2
+end
+
+local function criarLinhasDoContorno(overlay, centro, forma)
+	local segmentos = {}
+	for i = 0, TOTAL_SEGMENTOS - 1 do
+		local anguloA = i * (360 / TOTAL_SEGMENTOS)
+		local anguloB = (i + 1) * (360 / TOTAL_SEGMENTOS)
+		local pA = pontoNoAngulo(anguloA, forma, centro)
+		local pB = pontoNoAngulo(anguloB, forma, centro)
+
+		local diferenca = pB - pA
+		local comprimento = diferenca.Magnitude
+		local meio = (pA + pB) / 2
+		local anguloRotacao = math.deg(math.atan2(diferenca.Y, diferenca.X))
+
+		local segmento = Instance.new("Frame")
+		segmento.Name = "Segmento" .. i
+		segmento.AnchorPoint = Vector2.new(0.5, 0.5)
+		segmento.Position = UDim2.new(0, meio.X, 0, meio.Y)
+		segmento.Size = UDim2.new(0, comprimento + 3, 0, LINHA_ESPESSURA)
+		segmento.Rotation = anguloRotacao
+		segmento.BackgroundColor3 = Color3.fromRGB(196, 110, 40)
+		segmento.BorderSizePixel = 0
+		segmento.ZIndex = 4
+		segmento.Parent = overlay
+
+		segmentos[i] = segmento
+	end
+	return segmentos
+end
+
+local function marcarSegmentoCortado(segmento)
+	segmento.BackgroundColor3 = Color3.fromRGB(70, 255, 90)
+	segmento.Size = UDim2.new(0, segmento.Size.X.Offset, 0, LINHA_ESPESSURA + 4)
+
+	if not segmento:FindFirstChild("Brilho") then
+		local brilho = Instance.new("UIStroke")
+		brilho.Name = "Brilho"
+		brilho.Thickness = 2
+		brilho.Color = Color3.fromRGB(150, 255, 160)
+		brilho.Transparency = 0.2
+		brilho.Parent = segmento
+	end
+end
+
+local function criarRachaduraCursor(overlay, posicao)
+	local rachadura = Instance.new("Frame")
+	rachadura.Size = UDim2.new(0, 8, 0, 8)
+	rachadura.AnchorPoint = Vector2.new(0.5, 0.5)
+	rachadura.Position = UDim2.new(0, posicao.X, 0, posicao.Y)
+	rachadura.BackgroundColor3 = Color3.fromRGB(180, 30, 30)
+	rachadura.BorderSizePixel = 0
+	rachadura.ZIndex = 7
+	rachadura.Parent = overlay
+
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(1, 0)
+	c.Parent = rachadura
+end
+
+local function formatarTempo(segundos)
+	local min = math.floor(segundos / 60)
+	local seg = segundos % 60
+	return string.format("Tempo: %02d:%02d", min, seg)
+end
+
+local function iniciarMinigame()
+	if emJogo then return end
+	emJogo = true
+
+	local forma = FORMAS[math.random(1, #FORMAS)]
+
+	local personagem = player.Character
+	local humanoid = personagem and personagem:FindFirstChildOfClass("Humanoid")
+	local velocidadeOriginal = humanoid and humanoid.WalkSpeed
+	if humanoid then
+		humanoid.WalkSpeed = 0
+		humanoid.JumpPower = 0
+	end
+
+	local screenGui, biscoito, faca, status, progresso, tempoLabel, rachaduras1, rachaduras2 = criarGui()
+	screenGui.Parent = player:WaitForChild("PlayerGui")
+
+	local camera = workspace.CurrentCamera
+	local centro = camera.ViewportSize / 2
+
+	local segmentos = criarLinhasDoContorno(screenGui.Overlay, centro, forma)
+
+	status.Text = "Corte o " .. forma.nome .. "! Erros: 0/" .. MAX_ERROS
+	tempoLabel.Text = formatarTempo(TEMPO_LIMITE)
+
+	local erros = 0
+	local anguloJaCortado = {}
+	local terminou = false
+	local foraDaTolerancia = false
+	local ultimoBucket = nil
+
+	local function marcarBucket(b)
+		if not anguloJaCortado[b] then
+			anguloJaCortado[b] = true
+			marcarSegmentoCortado(segmentos[b])
+		end
+	end
+
+	local function finalizar(venceu)
+		if terminou then return end
+		terminou = true
+
+		if humanoid and velocidadeOriginal then
+			humanoid.WalkSpeed = velocidadeOriginal
+			humanoid.JumpPower = 50
+		end
+
+		if venceu then
+			status.Text = "Você cortou certinho!"
+			status.TextColor3 = Color3.fromRGB(120, 255, 120)
+		else
+			status.Text = "Você errou demais..."
+			status.TextColor3 = Color3.fromRGB(255, 80, 80)
+			if humanoid then
+				humanoid.Health = 0
+			end
+		end
+
+		task.wait(1.2)
+		screenGui:Destroy()
+
+		ultimoUso = os.clock()
+		emJogo = false
+	end
+
+	task.spawn(function()
+		local restante = TEMPO_LIMITE
+		while restante > 0 and not terminou do
+			tempoLabel.Text = formatarTempo(restante)
+			task.wait(1)
+			restante -= 1
+		end
+		if not terminou then
+			finalizar(false)
+		end
+	end)
+
+	local heartbeatConn
+	heartbeatConn = RunService.RenderStepped:Connect(function()
+		if terminou then return end
+
+		local mousePos = UserInputService:GetMouseLocation()
+		faca.Position = UDim2.new(0, mousePos.X, 0, mousePos.Y)
+
+		local mouseSegurado = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+
+		local diferenca = mousePos - centro
+		local distancia = diferenca.Magnitude
+		local anguloMouse = (math.deg(math.atan2(diferenca.Y, diferenca.X)) + 360) % 360
+		local raioEsperado = raioNoAngulo(anguloMouse, forma)
+		local desvio = math.abs(distancia - raioEsperado)
+
+		if mouseSegurado then
+			if desvio <= TOLERANCIA then
+				faca.BackgroundColor3 = Color3.fromRGB(90, 220, 90)
+				foraDaTolerancia = false
+
+				local bucketAtual = math.floor(anguloMouse / (360 / TOTAL_SEGMENTOS))
+
+				if ultimoBucket == nil then
+					marcarBucket(bucketAtual)
+				else
+					local diff = bucketAtual - ultimoBucket
+					if diff > TOTAL_SEGMENTOS / 2 then
+						diff -= TOTAL_SEGMENTOS
+					elseif diff < -TOTAL_SEGMENTOS / 2 then
+						diff += TOTAL_SEGMENTOS
+					end
+
+					if math.abs(diff) <= MAX_SALTO_BUCKETS then
+						local passo = diff >= 0 and 1 or -1
+						for i = 0, math.abs(diff) do
+							local b = (ultimoBucket + i * passo) % TOTAL_SEGMENTOS
+							marcarBucket(b)
+						end
+					else
+						marcarBucket(bucketAtual)
+					end
+				end
+				ultimoBucket = bucketAtual
+
+				local total = 0
+				for i = 0, TOTAL_SEGMENTOS - 1 do
+					if anguloJaCortado[i] then
+						total += 1
+					end
+				end
+				local pct = total / TOTAL_SEGMENTOS
+				progresso.Text = "Progresso: " .. math.floor(pct * 100) .. "%"
+
+				if pct >= PORCENTAGEM_PRA_VENCER then
+					finalizar(true)
+				end
+			else
+				faca.BackgroundColor3 = Color3.fromRGB(220, 60, 60)
+				ultimoBucket = nil
+				if not foraDaTolerancia then
+					foraDaTolerancia = true
+					erros += 1
+					status.Text = "Cuidado! Erros: " .. erros .. "/" .. MAX_ERROS
+					criarRachaduraCursor(screenGui.Overlay, mousePos)
+
+					local transparenciaAlvo = 1 - (erros / MAX_ERROS)
+					rachaduras1.ImageTransparency = transparenciaAlvo
+					rachaduras2.ImageTransparency = transparenciaAlvo
+
+					if erros >= MAX_ERROS then
+						finalizar(false)
+					end
+				end
+			end
+		else
+			faca.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+			foraDaTolerancia = false
+			ultimoBucket = nil
+		end
+	end)
+
+	task.spawn(function()
+		while not terminou do
+			task.wait(0.2)
+		end
+		task.wait(1.3)
+		if heartbeatConn then heartbeatConn:Disconnect() end
+	end)
+end
+
+RunService.Heartbeat:Connect(function()
+	local char = player.Character
+	if not char then return end
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	local dist = (root.Position - TARGET_POS).Magnitude
+	if dist <= RAIO_DETECCAO then
+		local emCooldown = (os.clock() - ultimoUso) < COOLDOWN
+		if not emJogo and not emCooldown then
+			iniciarMinigame()
+		end
+	end
+end)
